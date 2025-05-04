@@ -1,5 +1,9 @@
 on:
   workflow_call:
+    outputs:
+      json:
+        description: "JSON list with open PRs"
+        value: ${{ jobs.list-open-prs.outputs.json }}
 
 jobs:
   list-open-prs:
