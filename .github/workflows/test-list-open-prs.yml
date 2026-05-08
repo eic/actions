@@ -1,0 +1,38 @@
+name: Test list-open-prs
+
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+    branches:
+    - main
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  list-open-prs:
+    uses: ./.github/workflows/list-open-prs.yml
+    secrets: inherit
+
+  validate:
+    name: Validate list-open-prs output
+    needs: list-open-prs
+    runs-on: ubuntu-latest
+    steps:
+    - name: Validate JSON output structure
+      env:
+        JSON: ${{ needs.list-open-prs.outputs.json }}
+      run: |
+        echo "Output JSON: $JSON"
+        # Must be valid JSON
+        echo "$JSON" | jq empty
+        # Must have 'include' key
+        echo "$JSON" | jq -e 'has("include")'
+        # 'include' must be an array
+        echo "$JSON" | jq -e '.include | type == "array"'
+        # Each element (if any) must have 'pr' (number) and 'head_sha' (string)
+        echo "$JSON" | jq -e '[.include[] | (.pr | type == "number") and (.head_sha | type == "string")] | all'
+        echo "All validations passed!"
