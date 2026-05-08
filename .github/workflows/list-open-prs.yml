@@ -16,7 +16,7 @@ jobs:
         with:
           route: GET /repos/${{ github.repository }}/pulls?state=open&per_page=100
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Remap open PRs
         id: remap
         uses: nickofthyme/object-remap@v3
