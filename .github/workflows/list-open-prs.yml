@@ -11,16 +11,11 @@ jobs:
     outputs:
       json: ${{ steps.remap.outputs.json }}
     steps:
-      - uses: octokit/request-action@v2.x
-        id: query
-        with:
-          route: GET /repos/${{ github.repository }}/pulls?state=open&per_page=100
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Remap open PRs
+      - name: List and remap open PRs
         id: remap
-        uses: nickofthyme/object-remap@v3
-        with:
-          __case: snake
-          include.*.pr: ${{ toJSON(fromJSON(steps.query.outputs.data).*.number) }}
-          include.*.head_sha: ${{ toJSON(fromJSON(steps.query.outputs.data).*.head.sha) }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          json=$(gh api "/repos/${{ github.repository }}/pulls?state=open&per_page=100" \
+            | jq -c '{include: [.[] | {pr: .number, head_sha: .head.sha}]}')
+          echo "json=$json" >> $GITHUB_OUTPUT
