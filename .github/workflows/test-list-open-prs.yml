@@ -15,7 +15,6 @@ permissions:
 jobs:
   list-open-prs:
     uses: ./.github/workflows/list-open-prs.yml
-    secrets: inherit
 
   validate:
     name: Validate list-open-prs output
