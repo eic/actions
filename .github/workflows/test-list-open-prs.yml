@@ -15,7 +15,8 @@ permissions:
 jobs:
   list-open-prs:
     uses: ./.github/workflows/list-open-prs.yml
-    secrets: inherit
+    secrets:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   validate:
     name: Validate list-open-prs output
