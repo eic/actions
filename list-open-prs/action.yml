@@ -1,30 +1,6 @@
-# List the open PRs of the calling repository as a JSON object that can be
-# used directly as a job matrix:
-#
-#   {"include": [{"pr": <number>, "head_sha": "<sha>"}, ...]}
-#
-# The same logic is available as the reusable workflow
-# .github/workflows/list-open-prs.yml; keep both in sync.
-#
-# Example:
-#
-#   list-open-prs:
-#     runs-on: ubuntu-latest
-#     permissions:
-#       pull-requests: read
-#     outputs:
-#       json: ${{ steps.list-open-prs.outputs.json }}
-#     steps:
-#       - uses: eic/actions/list-open-prs@main
-#         id: list-open-prs
-#
-#   per-pr:
-#     needs: list-open-prs
-#     strategy:
-#       matrix: ${{ fromJSON(needs.list-open-prs.outputs.json) }}
-#     runs-on: ubuntu-latest
-#     steps:
-#       - run: echo "PR ${{ matrix.pr }} at ${{ matrix.head_sha }}"
+# List the open PRs of the calling repository as a job matrix JSON. The same
+# logic is available as the reusable workflow .github/workflows/list-open-prs.yml;
+# keep both in sync. See README.md for usage.
 
 name: List open PRs
 description: List the open PRs of the repository as a job matrix JSON
