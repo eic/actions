@@ -1,0 +1,75 @@
+name: Test get-artifacts-from-open-prs
+
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+    branches:
+    - main
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+jobs:
+  upload:
+    name: Upload test artifacts
+    runs-on: ubuntu-latest
+    steps:
+    - name: Create test content
+      run: |
+        mkdir -p docs report
+        echo "${{ github.run_id }}" > docs/run_id.txt
+        echo "${{ github.sha }}" > report/sha.txt
+    - uses: actions/upload-artifact@v7
+      with:
+        name: test-docs
+        path: docs/
+        retention-days: 7
+    - uses: actions/upload-artifact@v7
+      with:
+        name: test-report
+        path: report/
+        retention-days: 7
+
+  get-artifacts-from-open-prs:
+    needs: upload
+    uses: ./.github/workflows/get-artifacts-from-open-prs.yml
+    with:
+      artifacts: |
+        # comment and empty lines are ignored
+
+        test-docs
+        test-report:report/nested
+      path: prs
+      post-process: |
+        mkdir -p prs
+        find prs -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | sort > prs/index.txt
+      artifact-name: test-staging
+
+  validate:
+    name: Validate get-artifacts-from-open-prs output
+    needs: get-artifacts-from-open-prs
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/download-artifact@v8
+      with:
+        name: test-staging
+        path: staging/
+    - name: Validate staging content
+      env:
+        THIS_PR: ${{ github.event.pull_request.number }}
+      run: |
+        find staging/ | sort
+        # Post-processing must have run
+        test -f staging/prs/index.txt
+        cat staging/prs/index.txt
+        if [ -n "${THIS_PR}" ]; then
+          # Artifacts of this PR must come from the current run
+          grep -qxF "${{ github.run_id }}" "staging/prs/${THIS_PR}/run_id.txt"
+          grep -qxF "${{ github.sha }}" "staging/prs/${THIS_PR}/report/nested/sha.txt"
+          grep -qxF "${THIS_PR}" staging/prs/index.txt
+        fi
+        echo "All validations passed!"

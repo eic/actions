@@ -1,0 +1,212 @@
+# Download artifacts from the latest completed run of the calling workflow for
+# every open PR, and upload them as a single staging artifact, laid out as
+#
+#   <path>/<pr number>/<subdirectory>/...
+#
+# This is typically used to publish per-PR documentation or reports to GitHub
+# Pages next to those from the default branch.
+#
+# For the PR that triggered the current run (if any), the artifacts are taken
+# from the current run instead, so the calling job must depend on the jobs that
+# upload them. These artifacts are required to exist; for all other PRs a
+# missing run or artifact is skipped.
+#
+# Example:
+#
+#   get-docs-from-open-prs:
+#     needs: build-docs
+#     permissions:
+#       contents: read
+#       pull-requests: read
+#       actions: read
+#     uses: eic/actions/.github/workflows/get-artifacts-from-open-prs.yml@main
+#     with:
+#       artifacts: |
+#         docs
+#         capybara:capybara
+#       post-process: rm -rf pr/*/doxygen
+
+on:
+  workflow_call:
+    inputs:
+      artifacts:
+        description: >-
+          Newline-separated list of artifacts to download, each as
+          `<artifact-name>[:<subdirectory>]`. The artifact is extracted into
+          `<path>/<pr number>/<subdirectory>/`, or `<path>/<pr number>/` if no
+          subdirectory is given. Empty lines and lines starting with `#` are
+          ignored.
+        required: true
+        type: string
+      workflow:
+        description: >-
+          File name of the workflow whose runs to download artifacts from,
+          e.g. `linux-eic-shell.yml`. Defaults to the calling workflow.
+        required: false
+        type: string
+        default: ''
+      path:
+        description: Directory in the staging artifact under which the per-PR directories are created.
+        required: false
+        type: string
+        default: pr
+      post-process:
+        description: >-
+          Optional bash script to run in the root of the staging directory
+          after all artifacts are downloaded, e.g. to remove or index content.
+        required: false
+        type: string
+        default: ''
+      allow-forks:
+        description: >-
+          Whether to also download artifacts from runs for PRs from forks.
+          Note that publishing the content of such artifacts, e.g. to GitHub
+          Pages, may be unsafe.
+        required: false
+        type: boolean
+        default: false
+      artifact-name:
+        description: Name of the uploaded staging artifact.
+        required: false
+        type: string
+        default: github-pages-staging-prs
+
+jobs:
+  get-artifacts-from-open-prs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    steps:
+      - name: Download artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ARTIFACTS: ${{ inputs.artifacts }}
+          WORKFLOW: ${{ inputs.workflow }}
+          # In a called workflow, the github context is that of the caller
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          PR_PATH: ${{ inputs.path }}
+          ALLOW_FORKS: ${{ inputs.allow-forks }}
+          THIS_PR: ${{ github.event.pull_request.number }}
+          THIS_RUN: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # Any API or download error fails the job, and hence skips the
+          # deployment, rather than silently dropping PRs from the published
+          # docs. Only a missing run or artifact of another PR is skipped.
+          tmp=$(mktemp -d)
+          mkdir -p staging
+
+          # Parse the list of artifacts into names and subdirectories
+          names=()
+          subdirs=()
+          while IFS= read -r line; do
+            line="${line#"${line%%[![:space:]]*}"}"
+            line="${line%"${line##*[![:space:]]}"}"
+            if [ -z "${line}" ] || [ "${line:0:1}" = "#" ]; then
+              continue
+            fi
+            # Colons are not allowed in artifact names
+            if [[ "${line}" == *:* ]]; then
+              name="${line%%:*}"
+              subdir="${line#*:}"
+            else
+              name="${line}"
+              subdir="."
+            fi
+            if [ -z "${name}" ] || [ -z "${subdir}" ] || [[ "${subdir}" == /* ]] || [[ "/${subdir}/" == */../* ]]; then
+              echo "::error::Invalid artifact specification '${line}'"
+              exit 1
+            fi
+            names+=("${name}")
+            subdirs+=("${subdir}")
+          done <<< "${ARTIFACTS}"
+          if [ "${#names[@]}" -eq 0 ]; then
+            echo "::error::No artifacts specified"
+            exit 1
+          fi
+
+          if [ -z "${WORKFLOW}" ]; then
+            WORKFLOW="${WORKFLOW_REF%%@*}"
+            WORKFLOW="${WORKFLOW##*/}"
+          fi
+          echo "Downloading artifacts from runs of workflow ${WORKFLOW}"
+
+          # download_artifacts <run id> <pr> <required>
+          download_artifacts() {
+            local run_id=$1 pr=$2 required=$3 available i
+            available=$(
+              gh api "/repos/${GH_REPO}/actions/runs/${run_id}/artifacts?per_page=100" --paginate \
+                --jq '.artifacts[] | select(.expired | not) | .name'
+            )
+            for i in "${!names[@]}"; do
+              if grep -qxF -- "${names[$i]}" <<< "${available}"; then
+                gh run download "${run_id}" --name "${names[$i]}" \
+                  --dir "staging/${PR_PATH}/${pr}/${subdirs[$i]}"
+              elif [ "${required}" = "true" ]; then
+                echo "::error::No ${names[$i]} artifact in run ${run_id} for PR ${pr}"
+                return 1
+              else
+                echo "No ${names[$i]} artifact for PR ${pr}"
+              fi
+            done
+          }
+
+          runs_url="/repos/${GH_REPO}/actions/workflows/${WORKFLOW}/runs"
+          runs_jq='[.workflow_runs[] | {id, head_sha, status, repo: .head_repository.full_name}]'
+          # Queries filtered by head_sha (or status) are served by a search
+          # index that intermittently returns a random subset of the matching
+          # runs. As in action-download-artifact, also fetch the latest runs
+          # without filters and match them locally. This only helps if the
+          # newest matching run is among the latest 100 runs of the workflow.
+          gh api "${runs_url}?per_page=100" --jq "${runs_jq}" > "${tmp}/latest_runs.json"
+          gh api "/repos/${GH_REPO}/pulls?state=open&per_page=100" --paginate \
+            --jq '.[] | "\(.number) \(.head.sha)"' > "${tmp}/prs.txt"
+          while read -r pr head_sha; do
+            if [ "${pr}" = "${THIS_PR:-}" ]; then
+              echo "::group::PR ${pr} (this PR, run ${THIS_RUN})"
+              download_artifacts "${THIS_RUN}" "${pr}" true
+              echo "::endgroup::"
+              continue
+            fi
+            echo "::group::PR ${pr} (${head_sha})"
+            gh api "${runs_url}?head_sha=${head_sha}&per_page=100" --jq "${runs_jq}" \
+              > "${tmp}/runs.json"
+            # Only consider completed runs, and unless forks are allowed, only
+            # runs whose head is in this repository. Status is matched locally
+            # to keep the search index query minimal.
+            # Pick the newest run by id (monotonic, unlike created_at which has
+            # 1 s resolution) and do not rely on the API response order.
+            run_id=$(
+              jq -rs --arg sha "${head_sha}" --arg repo "${GH_REPO}" --arg forks "${ALLOW_FORKS}" '
+                add
+                | map(select(.head_sha == $sha and .status == "completed"
+                             and ($forks == "true" or .repo == $repo)))
+                | max_by(.id) | .id // empty' \
+                "${tmp}/runs.json" "${tmp}/latest_runs.json"
+            )
+            if [ -z "${run_id}" ]; then
+              echo "No completed run found for PR ${pr} (${head_sha})"
+            else
+              echo "Using run ${run_id}"
+              download_artifacts "${run_id}" "${pr}" false
+            fi
+            echo "::endgroup::"
+          done < "${tmp}/prs.txt"
+      - name: Post-process
+        if: inputs.post-process != ''
+        shell: bash
+        working-directory: staging
+        env:
+          SCRIPT: ${{ inputs.post-process }}
+        run: bash -euo pipefail -c "${SCRIPT}"
+      - name: List content
+        run: find staging/ -maxdepth 3 | sort
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: staging/
+          if-no-files-found: ignore
