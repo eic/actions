@@ -1,0 +1,69 @@
+name: Test get-artifacts-from-open-prs
+
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+    branches:
+    - main
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+jobs:
+  upload:
+    name: Upload test artifacts
+    runs-on: ubuntu-latest
+    steps:
+    - name: Create test content
+      run: |
+        mkdir -p docs report
+        echo "${{ github.run_id }}" > docs/run_id.txt
+        echo "${{ github.sha }}" > report/sha.txt
+    - uses: actions/upload-artifact@v7
+      with:
+        name: test-docs
+        path: docs/
+        retention-days: 7
+    - uses: actions/upload-artifact@v7
+      with:
+        name: test-report
+        path: report/
+        retention-days: 7
+
+  get-artifacts-from-open-prs:
+    name: Get artifacts from open PRs
+    needs: upload
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - uses: ./get-artifacts-from-open-prs
+      with:
+        artifacts: |
+          # comment and empty lines are ignored
+
+          test-docs
+          test-report:report/nested
+        path: staging/prs
+    - uses: ./get-artifacts-from-open-prs
+      with:
+        artifacts: does-not-exist
+        path: missing
+        if-no-artifact-found: warn
+    - name: Validate content
+      env:
+        THIS_PR: ${{ github.event.pull_request.number }}
+      run: |
+        find staging/ | sort
+        test -d staging/prs
+        # A missing artifact must not produce any files
+        test -z "$(find missing -type f)"
+        if [ -n "${THIS_PR}" ]; then
+          # Artifacts of this PR must come from the current run
+          grep -qxF "${{ github.run_id }}" "staging/prs/${THIS_PR}/run_id.txt"
+          grep -qxF "${{ github.sha }}" "staging/prs/${THIS_PR}/report/nested/sha.txt"
+        fi
+        echo "All validations passed!"
