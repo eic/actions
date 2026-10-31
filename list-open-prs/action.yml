@@ -1,0 +1,57 @@
+# List the open PRs of the calling repository as a JSON object that can be
+# used directly as a job matrix:
+#
+#   {"include": [{"pr": <number>, "head_sha": "<sha>"}, ...]}
+#
+# The same logic is available as the reusable workflow
+# .github/workflows/list-open-prs.yml; keep both in sync.
+#
+# Example:
+#
+#   list-open-prs:
+#     runs-on: ubuntu-latest
+#     permissions:
+#       pull-requests: read
+#     outputs:
+#       json: ${{ steps.list-open-prs.outputs.json }}
+#     steps:
+#       - uses: eic/actions/list-open-prs@main
+#         id: list-open-prs
+#
+#   per-pr:
+#     needs: list-open-prs
+#     strategy:
+#       matrix: ${{ fromJSON(needs.list-open-prs.outputs.json) }}
+#     runs-on: ubuntu-latest
+#     steps:
+#       - run: echo "PR ${{ matrix.pr }} at ${{ matrix.head_sha }}"
+
+name: List open PRs
+description: List the open PRs of the repository as a job matrix JSON
+
+inputs:
+  token:
+    description: Token with pull-requests read permission on the repository.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  json:
+    description: >-
+      JSON object with open PRs, as `{"include": [{"pr", "head_sha"}, ...]}`
+    value: ${{ steps.list.outputs.json }}
+
+runs:
+  using: composite
+  steps:
+    - name: List open PRs
+      id: list
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        json=$(gh api "/repos/${GH_REPO}/pulls?state=open&per_page=100" \
+          | jq -c '{include: [.[] | {pr: .number, head_sha: .head.sha}]}')
+        echo "json=${json}" >> "${GITHUB_OUTPUT}"
