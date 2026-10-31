@@ -1,3 +1,10 @@
+# Reusable workflow that lists the open PRs of the calling repository as a job
+# matrix JSON. This duplicates the logic of the composite action
+# list-open-prs/action.yml rather than calling it: a relative `uses:` would
+# resolve against the caller's workspace, and `eic/actions/list-open-prs@main`
+# would run main's action regardless of the ref this workflow is called at.
+# Keep both in sync.
+
 on:
   workflow_call:
     outputs:
@@ -15,7 +22,9 @@ jobs:
         id: remap
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          json=$(gh api "/repos/${{ github.repository }}/pulls?state=open&per_page=100" \
+          set -euo pipefail
+          json=$(gh api "/repos/${GH_REPO}/pulls?state=open&per_page=100" \
             | jq -c '{include: [.[] | {pr: .number, head_sha: .head.sha}]}')
-          echo "json=$json" >> $GITHUB_OUTPUT
+          echo "json=${json}" >> "${GITHUB_OUTPUT}"
