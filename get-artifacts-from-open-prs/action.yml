@@ -1,39 +1,5 @@
 # Download artifacts from the latest completed run of the calling workflow for
-# every open PR, laid out as
-#
-#   <path>/<pr number>/<subdirectory>/...
-#
-# This is typically used to publish per-PR documentation or reports to GitHub
-# Pages next to those from the default branch.
-#
-# For the PR that triggered the current run (if any), the artifacts are taken
-# from the current run instead, so the calling job must depend on the jobs that
-# upload them. By default these artifacts are required to exist (see
-# if-no-artifact-found); for all other PRs a missing run or artifact is
-# skipped. Any API or download error fails the step.
-#
-# Example:
-#
-#   get-docs-from-open-prs:
-#     runs-on: ubuntu-latest
-#     needs: build-docs
-#     permissions:
-#       contents: read
-#       pull-requests: read
-#       actions: read
-#     steps:
-#       - uses: eic/actions/get-artifacts-from-open-prs@main
-#         with:
-#           artifacts: |
-#             docs
-#             capybara:capybara
-#           path: publishing_docs/pr
-#       - run: rm -rf publishing_docs/pr/*/doxygen
-#       - uses: actions/upload-artifact@v7
-#         with:
-#           name: github-pages-staging-prs
-#           path: publishing_docs/
-#           if-no-files-found: ignore
+# every open PR. See README.md for usage.
 
 name: Get artifacts from open PRs
 description: Download artifacts from the latest completed workflow run of every open PR
