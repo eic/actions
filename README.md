@@ -10,12 +10,13 @@ Shared GitHub Actions and reusable workflows for EIC repositories, such as
 | Action | Description |
 |---|---|
 | [`get-artifacts-from-open-prs`](get-artifacts-from-open-prs/README.md) | Download artifacts from the latest completed workflow run of every open PR |
+| [`list-open-prs`](list-open-prs/README.md) | List open PRs as a job matrix, `{include: [{pr, head_sha}, ...]}` |
 
 ## Reusable workflows
 
 | Workflow | Description |
 |---|---|
-| [`list-open-prs`](.github/workflows/list-open-prs.yml) | List open PRs as a job matrix, `{include: [{pr, head_sha}, ...]}` |
+| [`list-open-prs`](.github/workflows/list-open-prs.yml) | Same as the [`list-open-prs`](list-open-prs/README.md) action, as a reusable workflow |
 
 ## Versioning
 

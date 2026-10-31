@@ -1,0 +1,33 @@
+# List the open PRs of the calling repository as a job matrix JSON. The same
+# logic is available as the reusable workflow .github/workflows/list-open-prs.yml;
+# keep both in sync. See README.md for usage.
+
+name: List open PRs
+description: List the open PRs of the repository as a job matrix JSON
+
+inputs:
+  token:
+    description: Token with pull-requests read permission on the repository.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  json:
+    description: >-
+      JSON object with open PRs, as `{"include": [{"pr", "head_sha"}, ...]}`
+    value: ${{ steps.list.outputs.json }}
+
+runs:
+  using: composite
+  steps:
+    - name: List open PRs
+      id: list
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        json=$(gh api "/repos/${GH_REPO}/pulls?state=open&per_page=100" \
+          | jq -c '{include: [.[] | {pr: .number, head_sha: .head.sha}]}')
+        echo "json=${json}" >> "${GITHUB_OUTPUT}"
