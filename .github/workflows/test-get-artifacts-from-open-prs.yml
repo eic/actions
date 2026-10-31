@@ -48,12 +48,19 @@ jobs:
           test-docs
           test-report:report/nested
         path: staging/prs
+    - uses: ./get-artifacts-from-open-prs
+      with:
+        artifacts: does-not-exist
+        path: missing
+        if-no-artifact-found: warn
     - name: Validate content
       env:
         THIS_PR: ${{ github.event.pull_request.number }}
       run: |
         find staging/ | sort
         test -d staging/prs
+        # A missing artifact must not produce any files
+        test -z "$(find missing -type f)"
         if [ -n "${THIS_PR}" ]; then
           # Artifacts of this PR must come from the current run
           grep -qxF "${{ github.run_id }}" "staging/prs/${THIS_PR}/run_id.txt"
