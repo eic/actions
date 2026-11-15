@@ -38,6 +38,11 @@ inputs:
       Pages, may be unsafe.
     required: false
     default: 'false'
+  parallel:
+    description: >-
+      Maximum number of artifacts to download concurrently.
+    required: false
+    default: '4'
   token:
     description: >-
       Token with contents: read, pull-requests: read and actions: read
@@ -60,6 +65,7 @@ runs:
         WORKFLOW_REF: ${{ github.workflow_ref }}
         IF_NO_ARTIFACT_FOUND: ${{ inputs.if-no-artifact-found }}
         ALLOW_FORKS: ${{ inputs.allow-forks }}
+        PARALLEL: ${{ inputs.parallel }}
         THIS_PR: ${{ github.event.pull_request.number }}
         THIS_RUN: ${{ github.run_id }}
       run: |
@@ -107,14 +113,25 @@ runs:
             ;;
         esac
 
+        if ! [[ "${PARALLEL}" =~ ^[1-9][0-9]*$ ]]; then
+          echo "::error::Invalid parallel '${PARALLEL}', expected a positive integer"
+          exit 1
+        fi
+
         if [ -z "${WORKFLOW}" ]; then
           WORKFLOW="${WORKFLOW_REF%%@*}"
           WORKFLOW="${WORKFLOW##*/}"
         fi
         echo "Downloading artifacts from runs of workflow ${WORKFLOW}"
 
-        # download_artifacts <run id> <pr> <fail|warn|ignore>
-        download_artifacts() {
+        # Downloads are queued as NUL-separated <run id> <name> <dir> triples
+        # while the runs and artifacts are looked up, and run concurrently
+        # at the end.
+        downloads="${tmp}/downloads"
+        : > "${downloads}"
+
+        # queue_artifacts <run id> <pr> <fail|warn|ignore>
+        queue_artifacts() {
           local run_id=$1 pr=$2 if_missing=$3 available i
           available=$(
             gh api "/repos/${GH_REPO}/actions/runs/${run_id}/artifacts?per_page=100" --paginate \
@@ -122,8 +139,9 @@ runs:
           )
           for i in "${!names[@]}"; do
             if grep -qxF -- "${names[$i]}" <<< "${available}"; then
-              gh run download "${run_id}" --name "${names[$i]}" \
-                --dir "${PR_PATH}/${pr}/${subdirs[$i]}"
+              echo "Queued ${names[$i]} from run ${run_id}"
+              printf '%s\0%s\0%s\0' "${run_id}" "${names[$i]}" \
+                "${PR_PATH}/${pr}/${subdirs[$i]}" >> "${downloads}"
             elif [ "${if_missing}" = "fail" ]; then
               echo "::error::No ${names[$i]} artifact in run ${run_id} for PR ${pr}"
               return 1
@@ -148,7 +166,7 @@ runs:
         while read -r pr head_sha; do
           if [ "${pr}" = "${THIS_PR:-}" ]; then
             echo "::group::PR ${pr} (this PR, run ${THIS_RUN})"
-            download_artifacts "${THIS_RUN}" "${pr}" "${IF_NO_ARTIFACT_FOUND}"
+            queue_artifacts "${THIS_RUN}" "${pr}" "${IF_NO_ARTIFACT_FOUND}"
             echo "::endgroup::"
             continue
           fi
@@ -172,7 +190,19 @@ runs:
             echo "No completed run found for PR ${pr} (${head_sha})"
           else
             echo "Using run ${run_id}"
-            download_artifacts "${run_id}" "${pr}" ignore
+            queue_artifacts "${run_id}" "${pr}" ignore
           fi
           echo "::endgroup::"
         done < "${tmp}/prs.txt"
+
+        # Download concurrently. xargs exits non-zero if any download fails.
+        n=$(tr -cd '\0' < "${downloads}" | wc -c)
+        echo "Downloading $((n / 3)) artifacts, up to ${PARALLEL} at a time"
+        xargs -0 -r -n 3 -P "${PARALLEL}" bash -c '
+          set -euo pipefail
+          if ! gh run download "$1" --name "$2" --dir "$3" > /dev/null; then
+            echo "::error::Failed to download $2 from run $1 into $3"
+            exit 1
+          fi
+          echo "Downloaded $2 from run $1 into $3"
+        ' _ < "${downloads}"
