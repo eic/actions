@@ -50,6 +50,13 @@ jobs:
         path: staging/prs
     - uses: ./get-artifacts-from-open-prs
       with:
+        artifacts: |
+          test-docs
+          test-report:report/nested
+        path: serial/prs
+        parallel: 1
+    - uses: ./get-artifacts-from-open-prs
+      with:
         artifacts: does-not-exist
         path: missing
         if-no-artifact-found: warn
@@ -59,6 +66,8 @@ jobs:
       run: |
         find staging/ | sort
         test -d staging/prs
+        # Serial and parallel downloads must give the same result
+        diff -r staging/prs serial/prs
         # A missing artifact must not produce any files
         test -z "$(find missing -type f)"
         if [ -n "${THIS_PR}" ]; then

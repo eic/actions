@@ -18,6 +18,9 @@ to exist (see `if-no-artifact-found`). For all other PRs, a missing run or
 artifact is skipped. Any API or download error fails the step, so that PRs are
 not silently dropped from the published pages.
 
+The runs and artifacts are looked up first, and the artifacts are then
+downloaded concurrently (see `parallel`).
+
 ## Inputs
 
 | Input | Default | Description |
@@ -27,6 +30,7 @@ not silently dropped from the published pages.
 | `workflow` | calling workflow | File name of the workflow whose runs to download artifacts from, e.g. `linux-eic-shell.yml`. |
 | `if-no-artifact-found` | `fail` | What to do if an artifact is missing from the current run, for the PR that triggered it: `fail`, `warn` or `ignore`. Use `warn` or `ignore` when the calling job also runs after the jobs that upload the artifacts failed. Missing artifacts of other PRs are always ignored. |
 | `allow-forks` | `false` | Also download artifacts from runs for PRs from forks. Publishing the content of such artifacts, e.g. to GitHub Pages, may be unsafe. |
+| `parallel` | `4` | Maximum number of artifacts to download concurrently. |
 | `token` | `github.token` | Token with `contents: read`, `pull-requests: read` and `actions: read` permissions on the repository. |
 
 ## Permissions
